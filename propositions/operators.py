@@ -11,67 +11,154 @@ from propositions.syntax import *
 from propositions.semantics import *
 
 def to_not_and_or(formula: Formula) -> Formula:
-    """Syntactically converts the given formula to an equivalent formula that
-    contains no constants or operators beyond ``'~'``, ``'&'``, and ``'|'``.
+    if is_variable(formula.root):
+        return formula
 
-    Parameters:
-        formula: formula to convert.
+    if is_constant(formula.root):
+        p = Formula('p')
+        taut = Formula('|', p, Formula('~', p))  # (p|~p)
+        return taut if formula.root == 'T' else Formula('~', taut)
 
-    Returns:
-        A formula that has the same truth table as the given formula, but
-        contains no constants or operators beyond ``'~'``, ``'&'``, and
-        ``'|'``.
-    """
+    if is_unary(formula.root):
+        return Formula('~', to_not_and_or(formula.first))
+
+    assert is_binary(formula.root)
+    op = formula.root
+    left = to_not_and_or(formula.first)
+    right = to_not_and_or(formula.second)
+
+    if op == '&':
+        return Formula('&', left, right)
+    if op == '|':
+        return Formula('|', left, right)
+    if op == '->':
+        return Formula('|', Formula('~', left), right)
+    if op == '+':
+        return Formula('|',
+                       Formula('&', left, Formula('~', right)),
+                       Formula('&', Formula('~', left), right))
+    if op == '<->':
+
+        return Formula('|',
+                       Formula('&', left, right),
+                       Formula('&', Formula('~', left), Formula('~', right)))
+    if op == '-&':
+        return Formula('~', Formula('&', left, right))
+    if op == '-|':
+        return Formula('~', Formula('|', left, right))
+
+    raise ValueError('Unknown operator: ' + op)
     # Task 3.5
 
 def to_not_and(formula: Formula) -> Formula:
-    """Syntactically converts the given formula to an equivalent formula that
-    contains no constants or operators beyond ``'~'`` and ``'&'``.
+    f = to_not_and_or(formula)
 
-    Parameters:
-        formula: formula to convert.
+    def rec(g: Formula) -> Formula:
+        if is_variable(g.root):
+            return g
+        if is_constant(g.root):
+            p = Formula('p')
+            taut = Formula('|', p, Formula('~', p))
+            g = taut if g.root == 'T' else Formula('~', taut)
+            return rec(g)
 
-    Returns:
-        A formula that has the same truth table as the given formula, but
-        contains no constants or operators beyond ``'~'`` and ``'&'``.
-    """
+        if is_unary(g.root):  # '~'
+            return Formula('~', rec(g.first))
+
+        assert is_binary(g.root)
+        a = rec(g.first)
+        b = rec(g.second)
+
+        if g.root == '&':
+            return Formula('&', a, b)
+        if g.root == '|':
+            return Formula('~', Formula('&', Formula('~', a), Formula('~', b)))
+
+        raise ValueError('Unexpected operator in to_not_and: ' + g.root)
+
+    return rec(f)
     # Task 3.6a
 
 def to_nand(formula: Formula) -> Formula:
-    """Syntactically converts the given formula to an equivalent formula that
-    contains no constants or operators beyond ``'-&'``.
+    f = to_not_and(formula)
 
-    Parameters:
-        formula: formula to convert.
+    def nand(x: Formula, y: Formula) -> Formula:
+        return Formula('-&', x, y)
 
-    Returns:
-        A formula that has the same truth table as the given formula, but
-        contains no constants or operators beyond ``'-&'``.
-    """
+    def rec(g: Formula) -> Formula:
+        if is_variable(g.root):
+            return g
+        if is_constant(g.root):
+            p = Formula('p')
+            taut = nand(p, nand(p, p))
+            return taut if g.root == 'T' else nand(taut, taut)
+
+        if is_unary(g.root):
+            a = rec(g.first)
+            return nand(a, a)
+
+        assert is_binary(g.root) and g.root == '&'
+        a = rec(g.first)
+        b = rec(g.second)
+        t = nand(a, b)
+        return nand(t, t)
+
+    return rec(f)
     # Task 3.6b
 
 def to_implies_not(formula: Formula) -> Formula:
-    """Syntactically converts the given formula to an equivalent formula that
-    contains no constants or operators beyond ``'->'`` and ``'~'``.
+    f = to_not_and_or(formula)
 
-    Parameters:
-        formula: formula to convert.
+    def rec(g: Formula) -> Formula:
+        if is_variable(g.root):
+            return g
+        if is_constant(g.root):
+            p = Formula('p')
+            t = Formula('->', p, p)
+            return t if g.root == 'T' else Formula('~', t)
 
-    Returns:
-        A formula that has the same truth table as the given formula, but
-        contains no constants or operators beyond ``'->'`` and ``'~'``.
-    """
+        if is_unary(g.root):
+            return Formula('~', rec(g.first))
+
+        assert is_binary(g.root)
+        a = rec(g.first)
+        b = rec(g.second)
+
+        if g.root == '|':
+            return Formula('->', Formula('~', a), b)
+        if g.root == '&':
+            return Formula('~', Formula('->', a, Formula('~', b)))
+
+        raise ValueError('Unexpected operator in to_implies_not: ' + g.root)
+
+    return rec(f)
     # Task 3.6c
 
 def to_implies_false(formula: Formula) -> Formula:
-    """Syntactically converts the given formula to an equivalent formula that
-    contains no constants or operators beyond ``'->'`` and ``'F'``.
+    f = to_not_and_or(formula)
 
-    Parameters:
-        formula: formula to convert.
+    F = Formula('F')
 
-    Returns:
-        A formula that has the same truth table as the given formula, but
-        contains no constants or operators beyond ``'->'`` and ``'F'``.
-    """
+    def rec(g: Formula) -> Formula:
+        if is_variable(g.root):
+            return g
+        if is_constant(g.root):
+            return F if g.root == 'F' else Formula('->', F, F)
+
+        if is_unary(g.root):
+            a = rec(g.first)
+            return Formula('->', a, F)
+
+        assert is_binary(g.root)
+        a = rec(g.first)
+        b = rec(g.second)
+
+        if g.root == '|':
+            return Formula('->', Formula('->', a, F), b)
+        if g.root == '&':
+            return Formula('->', Formula('->', a, Formula('->', b, F)), F)
+
+        raise ValueError('Unexpected operator in to_implies_false: ' + g.root)
+
+    return rec(f)
     # Task 3.6d

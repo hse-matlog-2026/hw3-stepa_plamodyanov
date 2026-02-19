@@ -59,9 +59,9 @@ def is_binary(string: str) -> bool:
     Returns:
         ``True`` if the given string is a binary operator, ``False`` otherwise.
     """
-    return string == '&' or string == '|' or string == '->'
+    # return string == '&' or string == '|' or string == '->'
     # For Chapter 3:
-    # return string in {'&', '|',  '->', '+', '<->', '-&', '-|'}
+    return string in {'&', '|',  '->', '+', '<->', '-&', '-|'}
 
 @frozen
 class Formula:
@@ -315,13 +315,14 @@ class Formula:
                 return Formula(s[0], formula), remainder
 
             operator = None
-            if len(s) >= 2 and is_binary(s[:2]):
-                operator = s[:2]
-                remainder = s[2:]
-            elif is_binary(s[0]):
-                operator = s[0]
-                remainder = s[1:]
-            else:
+            max_op_length = min(3, len(s))
+            for length in range(max_op_length, 0, -1):
+                candidate = s[:length]
+                if is_binary(candidate):
+                    operator = candidate
+                    remainder = s[length:]
+                    break
+            if operator is None:
                 return None, 'Invalid formula'
 
             first, remainder = parse_prefix(remainder)
@@ -336,57 +337,58 @@ class Formula:
         assert formula is not None and remainder == ''
         return formula
 
-    def substitute_variables(self, substitution_map: Mapping[str, Formula]) -> \
-            Formula:
-        """Substitutes in the current formula, each variable name `v` that is a
-        key in `substitution_map` with the formula `substitution_map[v]`.
-
-        Parameters:
-            substitution_map: mapping defining the substitutions to be
-                performed.
-
-        Returns:
-            The formula resulting from performing all substitutions. Only
-            variable name occurrences originating in the current formula are
-            substituted (i.e., variable name occurrences originating in one of
-            the specified substitutions are not subjected to additional
-            substitutions).
-
-        Examples:
-            >>> Formula.parse('((p->p)|r)').substitute_variables(
-            ...     {'p': Formula.parse('(q&r)'), 'r': Formula.parse('p')})
-            (((q&r)->(q&r))|p)
-        """
+    def substitute_variables(self, substitution_map: Mapping[str, Formula]) -> Formula:
         for variable in substitution_map:
             assert is_variable(variable)
+
+        if is_variable(self.root) and self.root in substitution_map:
+            return substitution_map[self.root]
+
+        if is_constant(self.root) or is_variable(self.root):
+            return self
+
+        if is_unary(self.root):
+            return Formula(self.root, self.first.substitute_variables(substitution_map))
+
+        assert is_binary(self.root)
+        return Formula(
+            self.root,
+            self.first.substitute_variables(substitution_map),
+            self.second.substitute_variables(substitution_map)
+        )
         # Task 3.3
 
-    def substitute_operators(self, substitution_map: Mapping[str, Formula]) -> \
-            Formula:
-        """Substitutes in the current formula, each constant or operator `op`
-        that is a key in `substitution_map` with the formula
-        `substitution_map[op]` applied to its (zero or one or two) operands,
-        where the first operand is used for every occurrence of ``'p'`` in the
-        formula and the second for every occurrence of ``'q'``.
 
-        Parameters:
-            substitution_map: mapping defining the substitutions to be
-                performed.
-
-        Returns:
-            The formula resulting from performing all substitutions. Only
-            operator occurrences originating in the current formula are
-            substituted (i.e., operator occurrences originating in one of the
-            specified substitutions are not subjected to additional
-            substitutions).
-
-        Examples:
-            >>> Formula.parse('((x&y)&~z)').substitute_operators(
-            ...     {'&': Formula.parse('~(~p|~q)')})
-            ~(~~(~x|~y)|~~z)
-        """
+    def substitute_operators(self, substitution_map: Mapping[str, Formula]) -> Formula:
         for operator in substitution_map:
-            assert is_constant(operator) or is_unary(operator) or \
-                   is_binary(operator)
+            assert is_constant(operator) or is_unary(operator) or is_binary(operator)
             assert substitution_map[operator].variables().issubset({'p', 'q'})
+
+        if is_variable(self.root):
+            return self
+
+        if self.root not in substitution_map:
+            if is_constant(self.root):
+                return self
+            if is_unary(self.root):
+                return Formula(self.root, self.first.substitute_operators(substitution_map))
+            assert is_binary(self.root)
+            return Formula(
+                self.root,
+                self.first.substitute_operators(substitution_map),
+                self.second.substitute_operators(substitution_map),
+            )
+
+        template = substitution_map[self.root]
+
+        if is_constant(self.root):
+            return template
+
+        if is_unary(self.root):
+            new_first = self.first.substitute_operators(substitution_map)
+            return template.substitute_variables({'p': new_first})
+
+        new_first = self.first.substitute_operators(substitution_map)
+        new_second = self.second.substitute_operators(substitution_map)
+        return template.substitute_variables({'p': new_first, 'q': new_second})
         # Task 3.4
